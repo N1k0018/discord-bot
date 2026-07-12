@@ -68,8 +68,8 @@ class RolView(discord.ui.View):
         data = load_data()
         
         # 3 GÜN KONTROLÜ
-        user_info = data.get(user_id,{"free_change_used":False,"last_change":None})
-        if user_info["free_change_used"] and user_info["last_change"]:
+        user_info = data.get(user_id)
+        if user_info.get("free_change_used") and user_info.get("last_change"):
             last_change = datetime.fromisoformat(user_info["last_change"])
             if (datetime.now() - last_change) < timedelta(days=3):
                 await interaction.response.send_message("❌ Rolünü değiştirmek için en son değişimden itibaren 3 gün geçmesi gerekiyor.", ephemeral=True)
