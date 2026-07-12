@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
+import json
 
 intents = discord.Intents.default()
 intents.members = True
@@ -17,8 +18,36 @@ ROLLER = {
     "Sohbet": 1486012917324185600
 }
 
-# 3 gün kısıtlaması için hafıza
-USER_COOLDOWN = {}
+# Cooldown verilerini kaydetmek için dosya
+COOLDOWN_FILE = "cooldowns.json"
+
+# Dosyadan yükleme
+def load_cooldowns():
+    try:
+        with open(COOLDOWN_FILE, "r") as f:
+            data = json.load(f)
+            result = {}
+            for k, v in data.items():
+                result[int(k)] = {
+                    "last_time": datetime.fromisoformat(v["last_time"]) if v.get("last_time") else None,
+                    "used_once": v.get("used_once", False)
+                }
+            return result
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+# Dosyaya kaydetme
+def save_cooldowns():
+    with open(COOLDOWN_FILE, "w") as f:
+        json.dump({
+            str(k): {
+                "last_time": v["last_time"].isoformat() if v["last_time"] else None,
+                "used_once": v["used_once"]
+            } for k, v in USER_COOLDOWN.items()
+        }, f)
+
+# 3 gün kısıtlaması için hafıza (kalıcı)
+USER_COOLDOWN = load_cooldowns()
 
 class RolView(discord.ui.View):
     def __init__(self):
@@ -39,7 +68,8 @@ class RolView(discord.ui.View):
                 await interaction.user.remove_roles(old_role)
         
         await interaction.user.add_roles(yeni_rol)
-        USER_COOLDOWN[interaction.user.id] = datetime.now()
+        USER_COOLDOWN[interaction.user.id] = {"last_time": datetime.now(), "used_once": False}
+        save_cooldowns()
         
         # Seçimi kilitle
         select.disabled = True
@@ -48,18 +78,29 @@ class RolView(discord.ui.View):
 
     @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
     async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        last_time = USER_COOLDOWN.get(interaction.user.id)
-        
-        # 3 gün (72 saat) kontrolü
-        if last_time and (datetime.now() - last_time) < timedelta(days=3):
-            await interaction.response.send_message("❌ Rolünü tekrar değiştirmek için 3 gün beklemen gerekiyor.", ephemeral=True)
-            return
-        
+        user_data = USER_COOLDOWN.get(interaction.user.id, {"last_time": None, "used_once": False})
+
+        # İlk kullanım serbest
+        if not user_data["used_once"]:
+            user_data["used_once"] = True
+            user_data["last_time"] = datetime.now()
+            USER_COOLDOWN[interaction.user.id] = user_data
+            save_cooldowns()
+        else:
+            # 3 gün kontrolü
+            if user_data["last_time"] and (datetime.now() - user_data["last_time"]) < timedelta(days=3):
+                await interaction.response.send_message("❌ Rolünü tekrar değiştirmek için 3 gün beklemen gerekiyor.", ephemeral=True)
+                return
+            else:
+                user_data["last_time"] = datetime.now()
+                USER_COOLDOWN[interaction.user.id] = user_data
+                save_cooldowns()
+
         # Menüyü tekrar aktif et
         for item in self.children:
             if isinstance(item, discord.ui.Select):
                 item.disabled = False
-        
+
         await interaction.response.edit_message(view=self)
         await interaction.followup.send("✅ Rol seçme menüsü tekrar açıldı, yeni rolünü seçebilirsin.", ephemeral=True)
 
@@ -76,7 +117,7 @@ async def rolmenu(ctx):
         description=(
             "• **Seçim:** Yalnızca 1 adet rol seçebilirsiniz.\n"
             "• **Değiştirme:** Rolünüzü değiştirmek için 'Rol Değiştir' butonunu kullanabilirsiniz.\n"
-            "• **Kısıtlama:** Rol değiştirme işlemi **3 günde bir** yapılabilir.\n\n"
+            "• **Kısıtlama:** İlk değişim serbesttir, sonrasında rol değiştirme işlemi **3 günde bir** yapılabilir.\n\n"
             "Hata durumlarında moderatör ile iletişime geçin."
         ),
         color=discord.Color.blue()
