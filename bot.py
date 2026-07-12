@@ -5,11 +5,13 @@ import json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
+# Bot Kurulumu
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Rollerin
 ROLLER = {
     "UFC-live": 1525780352679809125,
     "ROK-rise of kingdoms": 1525779899745308712,
@@ -21,13 +23,13 @@ DATA_FILE = "user_data.json"
 
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, "r") as f: return json.load(f)
+        except: return {}
     return {}
 
 def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
+    with open(DATA_FILE, "w") as f: json.dump(data, f)
 
 class RolView(discord.ui.View):
     def __init__(self):
@@ -35,7 +37,7 @@ class RolView(discord.ui.View):
 
     @discord.ui.select(
         placeholder="Rolünü seç...", 
-        custom_id="persistent_select_main", 
+        custom_id="persistent_select_999", 
         options=[discord.SelectOption(label=n, value=str(i)) for n, i in ROLLER.items()]
     )
     async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -43,40 +45,34 @@ class RolView(discord.ui.View):
         data = load_data()
         yeni_rol = interaction.guild.get_role(int(select.values[0]))
         
+        # Eski rolleri temizle
         for role_id in ROLLER.values():
-            old_role = interaction.guild.get_role(role_id)
-            if old_role in interaction.user.roles:
-                await interaction.user.remove_roles(old_role)
+            role = interaction.guild.get_role(role_id)
+            if role in interaction.user.roles: await interaction.user.remove_roles(role)
         
         await interaction.user.add_roles(yeni_rol)
-        
-        # Eğer zaten kayıtlıysa (daha önce rol aldıysa), değişim zamanını güncelle
-        if user_id in data:
-            data[user_id] = datetime.now().isoformat()
-        else:
-            # İlk defa rol alıyor, ilk zamanı None veya başlangıç gibi tut
-            data[user_id] = datetime.now().isoformat()
-            
+        data[user_id] = datetime.now().isoformat()
         save_data(data)
         
         select.disabled = True
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send(f"✅ {yeni_rol.name} rolü başarıyla verildi!", ephemeral=True)
+        await interaction.followup.send(f"✅ Başarıyla **{yeni_rol.name}** rolünü aldın!", ephemeral=True)
 
-    @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
+    @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_999")
     async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = str(interaction.user.id)
         data = load_data()
         
+        # 3 gün kuralı
         if user_id in data:
             last_change = datetime.fromisoformat(data[user_id])
             if (datetime.now() - last_change) < timedelta(days=3):
-                await interaction.response.send_message("❌ Rolünüzü değiştirmek için 3 gün beklemeniz gerekiyor.", ephemeral=True)
+                await interaction.response.send_message("❌ Rolünü değiştirmek için en son değişimden itibaren 3 gün geçmesi gerekiyor.", ephemeral=True)
                 return
         
+        # Menüyü aç
         for item in self.children:
-            if isinstance(item, discord.ui.Select):
-                item.disabled = False
+            if isinstance(item, discord.ui.Select): item.disabled = False
         
         await interaction.response.edit_message(view=self)
         await interaction.followup.send("✅ Değişim modu aktif, yeni rolünü seçebilirsin.", ephemeral=True)
