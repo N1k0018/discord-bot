@@ -5,13 +5,11 @@ import json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
-# Bot Kurulumu
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Rollerin
 ROLLER = {
     "UFC-live": 1525780352679809125,
     "ROK-rise of kingdoms": 1525779899745308712,
@@ -45,32 +43,38 @@ class RolView(discord.ui.View):
         data = load_data()
         yeni_rol = interaction.guild.get_role(int(select.values[0]))
         
-        # Eski rolleri temizle
         for role_id in ROLLER.values():
             role = interaction.guild.get_role(role_id)
             if role in interaction.user.roles: await interaction.user.remove_roles(role)
         
         await interaction.user.add_roles(yeni_rol)
-        data[user_id] = datetime.now().isoformat()
+        
+        # EĞER BU İLK SEÇİMSE: Zaman kaydetme (Kısıtlama yok)
+        # EĞER BUTONLA GELDİYSE: Zamanı güncelle (3 gün kısıtlaması başlar)
+        if "has_changed" in data.get(user_id, {}):
+            data[user_id] = {"last_change": datetime.now().isoformat(), "has_changed": True}
+        else:
+            data[user_id] = {"last_change": None, "has_changed": True}
+            
         save_data(data)
         
         select.disabled = True
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send(f"✅ Başarıyla **{yeni_rol.name}** rolünü aldın!", ephemeral=True)
+        await interaction.followup.send(f"✅ **{yeni_rol.name}** rolü başarıyla verildi!", ephemeral=True)
 
     @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_999")
     async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = str(interaction.user.id)
         data = load_data()
         
-        # 3 gün kuralı
-        if user_id in data:
-            last_change = datetime.fromisoformat(data[user_id])
+        # 3 GÜN KONTROLÜ
+        user_info = data.get(user_id)
+        if user_info and user_info["last_change"]:
+            last_change = datetime.fromisoformat(user_info["last_change"])
             if (datetime.now() - last_change) < timedelta(days=3):
                 await interaction.response.send_message("❌ Rolünü değiştirmek için en son değişimden itibaren 3 gün geçmesi gerekiyor.", ephemeral=True)
                 return
         
-        # Menüyü aç
         for item in self.children:
             if isinstance(item, discord.ui.Select): item.disabled = False
         
@@ -80,7 +84,7 @@ class RolView(discord.ui.View):
 @bot.event
 async def on_ready():
     bot.add_view(RolView())
-    print(f"{bot.user} hazır!")
+    print("Bot hazır!")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
