@@ -92,6 +92,7 @@ class RolView(discord.ui.View):
                 await interaction.response.send_message("❌ Rolünü tekrar değiştirmek için 3 gün beklemen gerekiyor.", ephemeral=True)
                 return
             else:
+                # Burada sadece zamanı güncelliyoruz, used_once True kalıyor
                 user_data["last_time"] = datetime.now()
                 USER_COOLDOWN[interaction.user.id] = user_data
                 save_cooldowns()
