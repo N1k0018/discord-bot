@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import os
 import json
 from datetime import datetime, timedelta
@@ -235,10 +235,50 @@ class RolView(discord.ui.View):
             pass
 
 
+@tasks.loop(minutes=3)
+async def heartbeat():
+    # Discord gateway bağlantısının canlılığını loglarda görünür kılar.
+    # Not: Render'ın ücretsiz planındaki "sleep" sorunu HTTP trafiği eksikliğinden
+    # kaynaklanır; bunu asıl çözen keep_alive.py'ye giden dış ping'lerdir (ör. UptimeRobot).
+    # Bu döngü onun yerine geçmez, yalnızca bağlantının koptuğunu erken fark etmeyi sağlar.
+    print(f"[heartbeat] bağlantı aktif — gecikme: {round(bot.latency * 1000)}ms", flush=True)
+
+
+@heartbeat.before_loop
+async def before_heartbeat():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready():
     bot.add_view(RolView())
-    print(f"{bot.user} hazır!")
+    if not heartbeat.is_running():
+        heartbeat.start()
+    print(f"{bot.user} hazır!", flush=True)
+
+
+@bot.event
+async def on_error(event_method, *args, **kwargs):
+    # Herhangi bir event handler içinde yakalanmayan istisnalar için genel güvenlik ağı.
+    import traceback
+    print(f"[on_error] '{event_method}' içinde beklenmedik hata:", flush=True)
+    traceback.print_exc()
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    # Komut seviyesindeki hataları (ör. yetkisiz kullanıcı) sessizce yutmak yerine bildirir.
+    if isinstance(error, commands.MissingPermissions):
+        try:
+            await ctx.send("❌ Bu komutu kullanmak için yönetici yetkisine sahip olmalısınız.", delete_after=10)
+        except discord.HTTPException:
+            pass
+        return
+
+    if isinstance(error, commands.CommandNotFound):
+        return
+
+    print(f"[on_command_error] '{ctx.command}' komutunda hata: {error}", flush=True)
 
 
 @bot.command()
