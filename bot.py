@@ -1,15 +1,13 @@
 import discord
 from discord.ext import commands
 import os
-import sqlite3
+import json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
 intents = discord.Intents.default()
 intents.members = True
-# message_content intent removed: the bot never reads message content,
-# so this privileged intent isn't needed and doesn't need to be enabled
-# in the Discord Developer Portal.
+intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -17,82 +15,119 @@ ROLLER = {
     "UFC-live": 1525780352679809125,
     "ROK-rise of kingdoms": 1525779899745308712,
     "Steam-alıcı": 1510649566972870767,
-    "Sohbet": 1486012917324185600,
+    "Sohbet": 1486012917324185600
 }
 
 COOLDOWN_DAYS = 3
-DB_PATH = "role_state.db"
-
-
-# ---------------------------------------------------------------------------
-# Persistence layer (SQLite) — survives restarts/redeploys, unlike plain dicts.
-# Keyed by (guild_id, user_id) so state doesn't leak across servers.
-# ---------------------------------------------------------------------------
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS role_state (
-            guild_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            first_selection_made INTEGER NOT NULL DEFAULT 0,
-            last_change_time TEXT,
-            PRIMARY KEY (guild_id, user_id)
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_state(guild_id: int, user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute(
-        "SELECT first_selection_made, last_change_time FROM role_state "
-        "WHERE guild_id = ? AND user_id = ?",
-        (guild_id, user_id),
-    ).fetchone()
-    conn.close()
-    if row is None:
-        return False, None
-    first_selection_made, last_change_time = row
-    last_change = (
-        datetime.fromisoformat(last_change_time) if last_change_time else None
-    )
-    return bool(first_selection_made), last_change
-
-
-def mark_first_selection(guild_id: int, user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        INSERT INTO role_state (guild_id, user_id, first_selection_made, last_change_time)
-        VALUES (?, ?, 1, NULL)
-        ON CONFLICT(guild_id, user_id) DO UPDATE SET first_selection_made = 1
-        """,
-        (guild_id, user_id),
-    )
-    conn.commit()
-    conn.close()
-
-
-def set_last_change_time(guild_id: int, user_id: int, when: datetime):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        INSERT INTO role_state (guild_id, user_id, first_selection_made, last_change_time)
-        VALUES (?, ?, 1, ?)
-        ON CONFLICT(guild_id, user_id) DO UPDATE SET last_change_time = excluded.last_change_time
-        """,
-        (guild_id, user_id, when.isoformat()),
-    )
-    conn.commit()
-    conn.close()
-
+DATA_FILE = "user_data.json"
 
 # ---------------------------------------------------------------------------
-# View
+# JSON persistence katmanı
+# Yapı:
+# {
+#   "<guild_id>": {
+#       "<user_id>": {
+#           "first_selection_made": bool,
+#           "free_change_used": bool,
+#           "last_change_time": "ISO-8601 string" veya null
+#       }
+#   }
+# }
 # ---------------------------------------------------------------------------
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {}
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return {}
+            return json.loads(content)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_data():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(USER_DATA, f, ensure_ascii=False, indent=2)
+
+
+USER_DATA = load_data()
+
+
+def get_user_state(guild_id: int, user_id: int) -> dict:
+    guild_key = str(guild_id)
+    user_key = str(user_id)
+
+    guild_data = USER_DATA.setdefault(guild_key, {})
+    if user_key not in guild_data:
+        guild_data[user_key] = {
+            "first_selection_made": False,
+            "free_change_used": False,
+            "last_change_time": None
+        }
+    return guild_data[user_key]
+
+
+def get_last_change_time(state: dict):
+    if state["last_change_time"] is None:
+        return None
+    return datetime.fromisoformat(state["last_change_time"])
+
+
+def format_remaining(remaining: timedelta) -> str:
+    total_seconds = int(remaining.total_seconds())
+    if total_seconds < 0:
+        total_seconds = 0
+    days, rem = divmod(total_seconds, 86400)
+    hours, _ = divmod(rem, 3600)
+    return f"{days} gün {hours} saat"
+
+
+def get_cooldown_status(state: dict):
+    """
+    Kullanıcının şu an rol değiştirip değiştiremeyeceğini belirler.
+    Döner: (izinli: bool, kalan_sure_mesaji: str veya None)
+    """
+    # Hiç rol seçmediyse: tamamen serbest.
+    if not state["first_selection_made"]:
+        return True, None
+
+    # İlk değişimini henüz kullanmadıysa: bu değişim ücretsiz.
+    if not state["free_change_used"]:
+        return True, None
+
+    # Artık cooldown uygulanır.
+    last_time = get_last_change_time(state)
+    if last_time is None:
+        return True, None
+
+    elapsed = datetime.now() - last_time
+    if elapsed < timedelta(days=COOLDOWN_DAYS):
+        remaining = timedelta(days=COOLDOWN_DAYS) - elapsed
+        return False, format_remaining(remaining)
+
+    return True, None
+
+
+def apply_selection_state(state: dict):
+    """
+    Başarılı bir rol seçiminden/değişiminden sonra durumu günceller.
+    """
+    if not state["first_selection_made"]:
+        # İlk seçim: serbest, cooldown başlamaz.
+        state["first_selection_made"] = True
+    elif not state["free_change_used"]:
+        # İlk değişim: serbest ama bundan sonra cooldown başlar.
+        state["free_change_used"] = True
+        state["last_change_time"] = datetime.now().isoformat()
+    else:
+        # Normal değişim: cooldown yeniden başlar.
+        state["last_change_time"] = datetime.now().isoformat()
+
+    save_data()
+
+
 class RolView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -100,78 +135,83 @@ class RolView(discord.ui.View):
     @discord.ui.select(
         placeholder="Rolünü seç...",
         custom_id="persistent_select_main",
-        options=[
-            discord.SelectOption(label=n, value=str(i)) for n, i in ROLLER.items()
-        ],
+        options=[discord.SelectOption(label=n, value=str(i)) for n, i in ROLLER.items()]
     )
-    async def select_callback(
-        self, interaction: discord.Interaction, select: discord.ui.Select
-    ):
-        yeni_rol = interaction.guild.get_role(int(select.values[0]))
+    async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Bu işlem yalnızca sunucu içinde kullanılabilir.", ephemeral=True)
+            return
 
-        # Guard: role ID missing/deleted/renamed on the server.
+        yeni_rol = interaction.guild.get_role(int(select.values[0]))
         if yeni_rol is None:
             await interaction.response.send_message(
                 "❌ Bu rol sunucuda bulunamadı. Lütfen bir yetkiliye bildirin.",
-                ephemeral=True,
+                ephemeral=True
             )
             return
 
-        try:
-            for role_id in ROLLER.values():
-                old_role = interaction.guild.get_role(role_id)
-                if old_role and old_role in interaction.user.roles:
-                    await interaction.user.remove_roles(old_role)
+        state = get_user_state(interaction.guild.id, interaction.user.id)
 
+        # Kullanıcının şu an sahip olduğu (listedeki) rolü bul.
+        mevcut_rol = None
+        for role_id in ROLLER.values():
+            rol = interaction.guild.get_role(role_id)
+            if rol and rol in interaction.user.roles:
+                mevcut_rol = rol
+                break
+
+        # Aynı rolü tekrar seçmeye çalışıyorsa.
+        if mevcut_rol and mevcut_rol.id == yeni_rol.id:
+            await interaction.response.send_message("Zaten bu role sahipsiniz.", ephemeral=True)
+            return
+
+        # UI durumuna güvenme: cooldown burada da kontrol edilir.
+        if mevcut_rol is not None:
+            izinli, kalan_mesaj = get_cooldown_status(state)
+            if not izinli:
+                await interaction.response.send_message(
+                    f"❌ Rolünüzü tekrar değiştirmek için {kalan_mesaj} beklemeniz gerekiyor.",
+                    ephemeral=True
+                )
+                return
+
+        try:
+            if mevcut_rol is not None:
+                await interaction.user.remove_roles(mevcut_rol)
             await interaction.user.add_roles(yeni_rol)
         except discord.Forbidden:
             await interaction.response.send_message(
-                "❌ Rol verme iznim yok. Lütfen rolümün, verilecek rollerden "
-                "üstte olduğundan ve 'Rolleri Yönet' iznine sahip olduğundan emin olun.",
-                ephemeral=True,
+                "❌ Rol verme iznim yok. Botun rolünün, verilecek rollerden üstte "
+                "olduğundan ve 'Rolleri Yönet' iznine sahip olduğundan emin olun.",
+                ephemeral=True
             )
             return
         except discord.HTTPException:
             await interaction.response.send_message(
                 "❌ Rol verilirken bir hata oluştu, lütfen tekrar deneyin.",
-                ephemeral=True,
+                ephemeral=True
             )
             return
 
-        guild_id = interaction.guild.id
-        user_id = interaction.user.id
-        first_selection_made, _ = get_state(guild_id, user_id)
-
-        if first_selection_made:
-            set_last_change_time(guild_id, user_id, datetime.now())
-        else:
-            mark_first_selection(guild_id, user_id)
+        apply_selection_state(state)
 
         select.disabled = True
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send(
-            f"✅ {yeni_rol.name} rolü başarıyla verildi!", ephemeral=True
-        )
+        await interaction.followup.send(f"✅ {yeni_rol.name} rolü başarıyla verildi!", ephemeral=True)
 
-    @discord.ui.button(
-        label="Rol Değiştir",
-        style=discord.ButtonStyle.secondary,
-        custom_id="persistent_button_main",
-    )
-    async def btn_callback(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        guild_id = interaction.guild.id
-        user_id = interaction.user.id
-        _, last_time = get_state(guild_id, user_id)
+    @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
+    async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Bu işlem yalnızca sunucu içinde kullanılabilir.", ephemeral=True)
+            return
 
-        if last_time and (datetime.now() - last_time) < timedelta(days=COOLDOWN_DAYS):
-            remaining = timedelta(days=COOLDOWN_DAYS) - (datetime.now() - last_time)
-            hours_left = max(int(remaining.total_seconds() // 3600), 1)
+        state = get_user_state(interaction.guild.id, interaction.user.id)
+        izinli, kalan_mesaj = get_cooldown_status(state)
+
+        if not izinli:
             await interaction.response.send_message(
-                f"❌ Rolünüzü değiştirmek için yaklaşık {hours_left} saat daha "
-                f"beklemeniz gerekiyor.",
-                ephemeral=True,
+                f"❌ Rolünüzü değiştirmek için {kalan_mesaj} beklemeniz gerekiyor.",
+                ephemeral=True
             )
             return
 
@@ -180,31 +220,21 @@ class RolView(discord.ui.View):
                 item.disabled = False
 
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send(
-            "✅ Değişim hakkınız onaylandı, yeni rolünüzü seçin.", ephemeral=True
-        )
+        await interaction.followup.send("✅ Değişim hakkınız onaylandı, yeni rolünüzü seçin.", ephemeral=True)
 
-    async def on_error(
-        self,
-        interaction: discord.Interaction,
-        error: Exception,
-        item: discord.ui.Item,
-    ):
-        # Catch-all so a bad interaction never fails silently.
-        print(f"RolView error on {item}: {error}")
-        if interaction.response.is_done():
-            await interaction.followup.send(
-                "❌ Beklenmedik bir hata oluştu.", ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                "❌ Beklenmedik bir hata oluştu.", ephemeral=True
-            )
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item):
+        print(f"RolView hata ({item}): {error}")
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send("❌ Beklenmedik bir hata oluştu.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Beklenmedik bir hata oluştu.", ephemeral=True)
+        except discord.HTTPException:
+            pass
 
 
 @bot.event
 async def on_ready():
-    init_db()
     bot.add_view(RolView())
     print(f"{bot.user} hazır!")
 
@@ -217,9 +247,9 @@ async def rolmenu(ctx):
         description=(
             "• **Seçim:** Yalnızca 1 adet rol seçebilirsiniz.\n"
             "• **Değiştirme:** Rolünüzü değiştirmek için 'Rol Değiştir' butonunu kullanabilirsiniz.\n"
-            f"• **Kısıtlama:** Rol değiştirme işlemi **{COOLDOWN_DAYS} günde bir** yapılabilir."
+            f"• **Kısıtlama:** İlk değişiminiz ücretsizdir, sonrasında rol değiştirme işlemi **{COOLDOWN_DAYS} günde bir** yapılabilir."
         ),
-        color=discord.Color.blue(),
+        color=discord.Color.blue()
     )
     await ctx.send(embed=embed, view=RolView())
 
