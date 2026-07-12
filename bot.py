@@ -178,18 +178,25 @@ class RolView(discord.ui.View):
                 return
 
         try:
+            await interaction.response.defer()
+        except discord.HTTPException:
+            return
+
+        try:
+            # Önce yeni rolü ver, sonra eskisini kaldır: ikinci adım
+            # başarısız olsa bile kullanıcı rolsüz kalmaz.
+            await interaction.user.add_roles(yeni_rol)
             if mevcut_rol is not None:
                 await interaction.user.remove_roles(mevcut_rol)
-            await interaction.user.add_roles(yeni_rol)
         except discord.Forbidden:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Rol verme iznim yok. Botun rolünün, verilecek rollerden üstte "
                 "olduğundan ve 'Rolleri Yönet' iznine sahip olduğundan emin olun.",
                 ephemeral=True
             )
             return
         except discord.HTTPException:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Rol verilirken bir hata oluştu, lütfen tekrar deneyin.",
                 ephemeral=True
             )
@@ -198,7 +205,7 @@ class RolView(discord.ui.View):
         apply_selection_state(state)
 
         select.disabled = True
-        await interaction.response.edit_message(view=self)
+        await interaction.edit_original_response(view=self)
         await interaction.followup.send(f"✅ {yeni_rol.name} rolü başarıyla verildi!", ephemeral=True)
 
     @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
@@ -217,11 +224,16 @@ class RolView(discord.ui.View):
             )
             return
 
+        try:
+            await interaction.response.defer()
+        except discord.HTTPException:
+            return
+
         for item in self.children:
             if isinstance(item, discord.ui.Select):
                 item.disabled = False
 
-        await interaction.response.edit_message(view=self)
+        await interaction.edit_original_response(view=self)
         await interaction.followup.send("✅ Değişim hakkınız onaylandı, yeni rolünüzü seçin.", ephemeral=True)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item):
