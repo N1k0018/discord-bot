@@ -138,6 +138,12 @@ class RolView(discord.ui.View):
         options=[discord.SelectOption(label=n, value=str(i)) for n, i in ROLLER.items()]
     )
     async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        print(
+            f"[select] istek alındı — kullanıcı: {interaction.user} ({interaction.user.id}), "
+            f"seçim: {select.values}",
+            flush=True
+        )
+
         if interaction.guild is None:
             await interaction.response.send_message("❌ Bu işlem yalnızca sunucu içinde kullanılabilir.", ephemeral=True)
             return
@@ -210,6 +216,11 @@ class RolView(discord.ui.View):
 
     @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
     async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(
+            f"[button] istek alındı — kullanıcı: {interaction.user} ({interaction.user.id})",
+            flush=True
+        )
+
         if interaction.guild is None:
             await interaction.response.send_message("❌ Bu işlem yalnızca sunucu içinde kullanılabilir.", ephemeral=True)
             return
