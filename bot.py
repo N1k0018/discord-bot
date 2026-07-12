@@ -5,12 +5,10 @@ import json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
-intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
+# Bütün izinleri aktif ediyoruz (Message Content dahil)
+intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Rol ID'lerin
 ROLLER = {
     "UFC-live": 1525780352679809125,
     "ROK-rise of kingdoms": 1525779899745308712,
@@ -44,14 +42,11 @@ class RolView(discord.ui.View):
         data = load_data()
         yeni_rol = interaction.guild.get_role(int(select.values[0]))
         
-        # Eski rolleri temizle
         for role_id in ROLLER.values():
             role = interaction.guild.get_role(role_id)
             if role in interaction.user.roles: await interaction.user.remove_roles(role)
         
         await interaction.user.add_roles(yeni_rol)
-        
-        # 3 Gün Kuralını Başlat (Kullanıcı ilk seçimini yaptı, artık 'değişim' sürecine geçti)
         data[user_id] = datetime.now().isoformat()
         save_data(data)
         
@@ -64,14 +59,12 @@ class RolView(discord.ui.View):
         user_id = str(interaction.user.id)
         data = load_data()
         
-        # 3 GÜN KURALI DENETİMİ
         if user_id in data:
             last_change = datetime.fromisoformat(data[user_id])
             if (datetime.now() - last_change) < timedelta(days=3):
                 await interaction.response.send_message("❌ Rol değiştirme işlemi **3 günde bir** yapılabilir.", ephemeral=True)
                 return
         
-        # Menüyü tekrar aktif et
         for item in self.children:
             if isinstance(item, discord.ui.Select): item.disabled = False
         
@@ -81,7 +74,7 @@ class RolView(discord.ui.View):
 @bot.event
 async def on_ready():
     bot.add_view(RolView())
-    print("Bot hazır ve kalıcı menü aktif.")
+    print(f"{bot.user} başarıyla başlatıldı ve menü hazır!")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
