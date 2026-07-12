@@ -165,8 +165,10 @@ class RolView(discord.ui.View):
             await interaction.response.send_message("Zaten bu role sahipsiniz.", ephemeral=True)
             return
 
-        # UI durumuna güvenme: cooldown burada da kontrol edilir.
-        if mevcut_rol is not None:
+        # UI durumuna güvenme: cooldown, canlı rol tespitine değil,
+        # kayıtlı duruma (state) göre kontrol edilir. Böylece rol önbelleği
+        # anlık olarak güncel değilse bile cooldown atlanamaz.
+        if state["first_selection_made"]:
             izinli, kalan_mesaj = get_cooldown_status(state)
             if not izinli:
                 await interaction.response.send_message(
