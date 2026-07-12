@@ -106,11 +106,10 @@ class RolView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    bot.add_view(RolView())
+    bot.add_view(RolView())  # Kalıcı view kaydı
     print(f"{bot.user} olarak giriş yapıldı ve hazır!")
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def rolmenu(ctx):
     embed = discord.Embed(
         title="Rol Seçim Paneli", 
