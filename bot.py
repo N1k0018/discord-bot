@@ -244,6 +244,13 @@ async def on_ready():
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def rolmenu(ctx):
+    # Komut mesajını sil (kanalı temiz tutmak için). Botun "Mesajları Yönet"
+    # iznine sahip olması gerekir; yoksa veya mesaj zaten silindiyse sessizce geç.
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        pass
+
     embed = discord.Embed(
         title="Rol Seçim Paneli",
         description=(
