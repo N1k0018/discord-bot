@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
-# Bütün izinleri aktif ediyoruz (Message Content dahil)
+# Bütün izinleri aktif ediyoruz
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -74,7 +74,7 @@ class RolView(discord.ui.View):
 @bot.event
 async def on_ready():
     bot.add_view(RolView())
-    print(f"{bot.user} başarıyla başlatıldı ve menü hazır!")
+    print(f"{bot.user} başarıyla başlatıldı!")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -92,4 +92,4 @@ async def rolmenu(ctx):
     await ctx.send(embed=embed, view=RolView())
 
 keep_alive()
-bot.run(os.getenv('TOKEN'))
+bot.run(os.environ['TOKEN'])
