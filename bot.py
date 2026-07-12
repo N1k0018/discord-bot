@@ -308,7 +308,9 @@ async def rolmenu(ctx):
         description=(
             "• **Seçim:** Yalnızca 1 adet rol seçebilirsiniz.\n"
             "• **Değiştirme:** Rolünüzü değiştirmek için 'Rol Değiştir' butonunu kullanabilirsiniz.\n"
-            f"• **Kısıtlama:** İlk değişiminiz ücretsizdir, sonrasında rol değiştirme işlemi **{COOLDOWN_DAYS} günde bir** yapılabilir."
+            f"• **Kısıtlama:** İlk değişiminiz ücretsizdir, sonrasında rol değiştirme işlemi **{COOLDOWN_DAYS} günde bir** yapılabilir.\n\n"
+            "⚠️ *Bot uzun süre kullanılmadıysa uyku moduna geçebilir. Menü ilk tıklamada yanıt vermezse "
+            "1-2 dakika bekleyip tekrar deneyin.*"
         ),
         color=discord.Color.blue()
     )
