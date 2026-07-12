@@ -264,7 +264,22 @@ async def heartbeat():
     # Not: Render'ın ücretsiz planındaki "sleep" sorunu HTTP trafiği eksikliğinden
     # kaynaklanır; bunu asıl çözen keep_alive.py'ye giden dış ping'lerdir (ör. UptimeRobot).
     # Bu döngü onun yerine geçmez, yalnızca bağlantının koptuğunu erken fark etmeyi sağlar.
-    print(f"[heartbeat] bağlantı aktif — gecikme: {round(bot.latency * 1000)}ms", flush=True)
+    latency = bot.latency
+    if latency is None or latency != latency:  # latency != latency -> NaN kontrolü
+        print("[heartbeat] bağlantı aktif — gecikme şu an ölçülemiyor (olası kısa süreli yeniden bağlanma)", flush=True)
+    else:
+        print(f"[heartbeat] bağlantı aktif — gecikme: {round(latency * 1000)}ms", flush=True)
+
+
+@heartbeat.error
+async def heartbeat_error(error):
+    # tasks.loop içinde yakalanmayan bir hata döngüyü sessizce durdurur;
+    # bu, döngünün fark edilmeden bir daha hiç çalışmamasını önler.
+    import traceback
+    print("[heartbeat] döngüde beklenmedik hata, yeniden başlatılıyor:", flush=True)
+    traceback.print_exc()
+    if not heartbeat.is_running():
+        heartbeat.restart()
 
 
 @heartbeat.before_loop
