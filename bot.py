@@ -23,15 +23,21 @@ class RolMenu(discord.ui.Select):
         super().__init__(placeholder="Rolünü seç...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         yeni_rol = interaction.guild.get_role(int(self.values[0]))
         
         user_roles = [role.id for role in interaction.user.roles]
         if any(role_id in user_roles for role_id in ROLLER.values()):
-            await interaction.followup.send("❌ Zaten bir rol seçmişsin!", ephemeral=True)
+            await interaction.response.send_message("❌ Zaten bir rol seçmişsin!", ephemeral=True)
             return
 
         await interaction.user.add_roles(yeni_rol)
+        
+        # Seçim yapıldıktan sonra menüyü pasif yap
+        self.disabled = True
+        self.placeholder = "Rolünüzü seçtiniz."
+        
+        # Mesajı güncelle ve butonu pasif haliyle göster
+        await interaction.response.edit_message(view=self.view)
         await interaction.followup.send(f"✅ {yeni_rol.name} rolü verildi!", ephemeral=True)
 
 class RolView(discord.ui.View):
