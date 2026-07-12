@@ -16,7 +16,10 @@ ROLLER = {
     "Sohbet": 1486012917324185600
 }
 
-USER_COOLDOWN = {}
+# İlk defa rol seçenleri kısıtlamamak için ayrı bir liste
+FIRST_SELECTION_MADE = {}
+# Değişim yapanların süresini tutmak için
+LAST_CHANGE_TIME = {}
 
 class RolView(discord.ui.View):
     def __init__(self):
@@ -36,7 +39,12 @@ class RolView(discord.ui.View):
                 await interaction.user.remove_roles(old_role)
         
         await interaction.user.add_roles(yeni_rol)
-        USER_COOLDOWN[interaction.user.id] = datetime.now()
+        
+        # Eğer daha önce hiç seçmediyse, süre başlatma. İlk defa seçtiyse işaretle.
+        if interaction.user.id in FIRST_SELECTION_MADE:
+            LAST_CHANGE_TIME[interaction.user.id] = datetime.now()
+        else:
+            FIRST_SELECTION_MADE[interaction.user.id] = True
         
         select.disabled = True
         await interaction.response.edit_message(view=self)
@@ -44,23 +52,25 @@ class RolView(discord.ui.View):
 
     @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
     async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        last_time = USER_COOLDOWN.get(interaction.user.id)
+        last_time = LAST_CHANGE_TIME.get(interaction.user.id)
         
+        # Eğer daha önce bir değişim yaptıysa ve 3 gün dolmadıysa engelle
         if last_time and (datetime.now() - last_time) < timedelta(days=3):
-            await interaction.response.send_message("❌ Rolünü tekrar değiştirmek için 3 gün beklemen gerekiyor.", ephemeral=True)
+            await interaction.response.send_message("❌ Rolünüzü değiştirmek için 3 gün beklemeniz gerekiyor.", ephemeral=True)
             return
         
+        # Değişim hakkı varsa menüyü aç
         for item in self.children:
             if isinstance(item, discord.ui.Select):
                 item.disabled = False
         
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send("✅ Rol seçme menüsü tekrar açıldı, yeni rolünü seçebilirsin.", ephemeral=True)
+        await interaction.followup.send("✅ Değişim hakkınız onaylandı, yeni rolünüzü seçin.", ephemeral=True)
 
 @bot.event
 async def on_ready():
     bot.add_view(RolView())
-    print(f"{bot.user} olarak giriş yapıldı!")
+    print(f"{bot.user} hazır!")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -70,8 +80,7 @@ async def rolmenu(ctx):
         description=(
             "• **Seçim:** Yalnızca 1 adet rol seçebilirsiniz.\n"
             "• **Değiştirme:** Rolünüzü değiştirmek için 'Rol Değiştir' butonunu kullanabilirsiniz.\n"
-            "• **Kısıtlama:** Rol değiştirme işlemi **3 günde bir** yapılabilir.\n\n"
-            "Hata durumlarında moderatör ile iletişime geçin."
+            "• **Kısıtlama:** Rol değiştirme işlemi **3 günde bir** yapılabilir."
         ),
         color=discord.Color.blue()
     )
