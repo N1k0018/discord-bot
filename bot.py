@@ -110,7 +110,7 @@ async def rolmenu(ctx):
             "• **Rol Seçimi:** Değiştirme süresi **3 gün**.\n"
             "• **Dil Seçimi:** Değiştirme süresi **5 dakika**."
         ), 
-        color=0x0000FF
+        color=0x87CEEB
     )
     await ctx.send(embed=embed, view=BirlesikPanel())
 
