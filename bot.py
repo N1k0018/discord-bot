@@ -56,7 +56,6 @@ class BirlesikPanel(discord.ui.View):
         user_id = str(interaction.user.id)
         state = USER_DATA["rol_data"].setdefault(user_id, {"first_made": False, "last_time": None})
         
-        # 3 Günlük kontrol
         if state["first_made"] and state["last_time"]:
             last_time = datetime.fromisoformat(state["last_time"])
             if datetime.now() - last_time < timedelta(days=COOLDOWN_DAYS):
@@ -79,7 +78,6 @@ class BirlesikPanel(discord.ui.View):
         user_id = str(interaction.user.id)
         state = USER_DATA["dil_data"].setdefault(user_id, {"last_time": None})
         
-        # 5 Dakikalık kontrol
         if state["last_time"]:
             last_time = datetime.fromisoformat(state["last_time"])
             if datetime.now() - last_time < timedelta(minutes=5):
@@ -105,7 +103,15 @@ async def on_ready():
 @commands.has_permissions(administrator=True)
 async def rolmenu(ctx):
     await ctx.message.delete()
-    embed = discord.Embed(title="Panel", description="Rol ve Dil seçimlerini aşağıdan yapabilirsin.", color=0x00ff00)
+    embed = discord.Embed(
+        title="Rol ve Dil Seçim Paneli", 
+        description=(
+            "Aşağıdaki menüleri kullanarak seçiminizi yapabilirsiniz.\n\n"
+            "• **Rol Seçimi:** Değiştirme süresi **3 gün**.\n"
+            "• **Dil Seçimi:** Değiştirme süresi **5 dakika**."
+        ), 
+        color=0x0000FF
+    )
     await ctx.send(embed=embed, view=BirlesikPanel())
 
 keep_alive()
