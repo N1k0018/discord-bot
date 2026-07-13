@@ -1,17 +1,16 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import os
 import json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
+# --- AYARLAR ---
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ----------------- ROLLER VE DİLLER -----------------
 ROLLER = {
     "UFC-live": 1525780352679809125,
     "ROK-rise of kingdoms": 1525779899745308712,
@@ -33,73 +32,57 @@ DILLER = {
 COOLDOWN_DAYS = 3
 DATA_FILE = "user_data.json"
 
+# --- VERİ YÖNETİMİ ---
 def load_data():
-    if not os.path.exists(DATA_FILE): return {}
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            return json.loads(content) if content else {}
-    except: return {}
+    if not os.path.exists(DATA_FILE): return {"rol_data": {}, "dil_data": {}}
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+USER_DATA = load_data()
 
 def save_data():
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(USER_DATA, f, ensure_ascii=False, indent=2)
 
-USER_DATA = load_data()
-
-# --- MEVCUT ROL SİSTEMİ FONKSİYONLARI ---
-def get_user_state(guild_id: int, user_id: int):
-    if "rol_data" not in USER_DATA: USER_DATA["rol_data"] = {}
-    guild_key = str(guild_id)
-    user_key = str(user_id)
-    guild_data = USER_DATA["rol_data"].setdefault(guild_key, {})
-    if user_key not in guild_data:
-        guild_data[user_key] = {"first_selection_made": False, "free_change_used": False, "last_change_time": None}
-    return guild_data[user_key]
-
-# --- YENİ DİL SİSTEMİ FONKSİYONLARI ---
-def get_dil_state(guild_id: int, user_id: int):
-    if "dil_data" not in USER_DATA: USER_DATA["dil_data"] = {}
-    key = f"{guild_id}-{user_id}"
-    if key not in USER_DATA["dil_data"]:
-        USER_DATA["dil_data"][key] = {"last_change": None}
-    return USER_DATA["dil_data"][key]
-
-# ----------------- ROL VIEW (ESKİ SİSTEM) -----------------
-class RolView(discord.ui.View):
+# --- PANEL ---
+class BirlesikPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.select(placeholder="Rolünü seç...", custom_id="persistent_select_main", 
+    # 1. ROL SEÇİMİ (3 GÜN COOLDOWN)
+    @discord.ui.select(placeholder="Rolünü seç...", custom_id="persistent_role", 
                        options=[discord.SelectOption(label=n, value=str(i)) for n, i in ROLLER.items()])
-    async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
-        yeni_rol = interaction.guild.get_role(int(select.values[0]))
-        state = get_user_state(interaction.guild.id, interaction.user.id)
+    async def role_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        user_id = str(interaction.user.id)
+        state = USER_DATA["rol_data"].setdefault(user_id, {"first_made": False, "last_time": None})
         
-        # Senin orijinal rol kontrol mantığın buraya gelecek
-        await interaction.response.defer()
+        # 3 Günlük kontrol
+        if state["first_made"] and state["last_time"]:
+            last_time = datetime.fromisoformat(state["last_time"])
+            if datetime.now() - last_time < timedelta(days=COOLDOWN_DAYS):
+                await interaction.response.send_message(f"❌ Rol değiştirmek için {COOLDOWN_DAYS} gün beklemen gerekiyor.", ephemeral=True)
+                return
+
+        yeni_rol = interaction.guild.get_role(int(select.values[0]))
         await interaction.user.add_roles(yeni_rol)
-        select.disabled = True
-        await interaction.edit_original_response(view=self)
-        await interaction.followup.send(f"✅ {yeni_rol.name} rolü başarıyla verildi!", ephemeral=True)
+        
+        state["first_made"] = True
+        state["last_time"] = datetime.now().isoformat()
+        save_data()
+        
+        await interaction.response.send_message(f"✅ {yeni_rol.name} rolü verildi!", ephemeral=True)
 
-    @discord.ui.button(label="Rol Değiştir", style=discord.ButtonStyle.secondary, custom_id="persistent_button_main")
-    async def btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            if isinstance(item, discord.ui.Select): item.disabled = False
-        await interaction.response.edit_message(view=self)
-
-# ----------------- DİL VIEW (YENİ SİSTEM) -----------------
-class DilView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.select(placeholder="Dilini seç...", custom_id="persistent_select_dil", 
+    # 2. DİL SEÇİMİ (5 DAKİKA COOLDOWN)
+    @discord.ui.select(placeholder="Dilini seç...", custom_id="persistent_dil", 
                        options=[discord.SelectOption(label=n, value=str(i)) for n, i in DILLER.items()])
     async def dil_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
-        state = get_dil_state(interaction.guild.id, interaction.user.id)
-        if state["last_change"]:
-            if datetime.now() - datetime.fromisoformat(state["last_change"]) < timedelta(minutes=5):
+        user_id = str(interaction.user.id)
+        state = USER_DATA["dil_data"].setdefault(user_id, {"last_time": None})
+        
+        # 5 Dakikalık kontrol
+        if state["last_time"]:
+            last_time = datetime.fromisoformat(state["last_time"])
+            if datetime.now() - last_time < timedelta(minutes=5):
                 await interaction.response.send_message("❌ Dilini değiştirmek için 5 dakika beklemen gerekiyor.", ephemeral=True)
                 return
 
@@ -108,36 +91,22 @@ class DilView(discord.ui.View):
         await interaction.user.remove_roles(*eski_roller)
         await interaction.user.add_roles(yeni_dil)
         
-        state["last_change"] = datetime.now().isoformat()
+        state["last_time"] = datetime.now().isoformat()
         save_data()
         
-        select.disabled = True
-        await interaction.response.edit_message(view=self)
-        await interaction.followup.send(f"✅ Dilin {yeni_dil.name} olarak ayarlandı!", ephemeral=True)
+        await interaction.response.send_message(f"✅ Dilin {yeni_dil.name} olarak ayarlandı!", ephemeral=True)
 
-    @discord.ui.button(label="Dil Değiştir", style=discord.ButtonStyle.danger, custom_id="persistent_button_dil")
-    async def dil_btn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            if isinstance(item, discord.ui.Select): item.disabled = False
-        await interaction.response.edit_message(view=self)
-
-# ----------------- BOT EVENT & KOMUTLAR -----------------
 @bot.event
 async def on_ready():
-    bot.add_view(RolView())
-    bot.add_view(DilView())
+    bot.add_view(BirlesikPanel())
     print(f"{bot.user} hazır!")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def dilmenu(ctx):
-    embed = discord.Embed(
-        title="🌍 Dil Seçim Paneli",
-        description="Lütfen konuşmak istediğin dili seç.\n\n⚠️ **Kural:** Seçim yaptıktan sonra 5 dakika boyunca dilini değiştiremezsin.",
-        color=discord.Color.green()
-    )
-    await ctx.send(embed=embed, view=DilView())
+async def rolmenu(ctx):
+    await ctx.message.delete()
+    embed = discord.Embed(title="Panel", description="Rol ve Dil seçimlerini aşağıdan yapabilirsin.", color=0x00ff00)
+    await ctx.send(embed=embed, view=BirlesikPanel())
 
-# ... (Diğer tüm heartbeat, rolmenu vb. kodların burada kalmaya devam edecek)
 keep_alive()
 bot.run(os.getenv("TOKEN"))
